@@ -50,7 +50,7 @@ class TargetSelector:
         ]
         if not candidates:
             return None
-        # Pick largest digit, tie-break by confidence
+        # TODO: Pick largest digit, tie-break by confidence
         best = max(candidates, key=lambda d: (d.class_id, d.confidence))
         self._tracking_digit = best.class_id
         self._lost_frames = 0

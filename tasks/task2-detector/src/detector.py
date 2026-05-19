@@ -113,6 +113,17 @@ def order_corners(corners: Sequence[Point2D]) -> CornerSet:
     # Input: four 2D corners in arbitrary order.
     # Output: corners ordered as top-left, top-right, bottom-right, bottom-left.
     # Compute a stable ordering rule that works for the target board geometry.
+    pts = np.array(corners, dtype=np.float32)
+
+    center = np.mean(pts, axis=0)
+
+    s = pts.sum(axis=1)
+    lu = pts[np.argmin(s)]
+    rd = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    ru = pts[np.argmin(diff)]
+    ld = pts[np.argmax(diff)]
+    return (tuple(lu), tuple(ru), tuple(rd), tuple(ld))
     raise NotImplementedError("order_corners is not implemented")
 
 
@@ -134,6 +145,31 @@ def detect_bbox(image: ImageLike, threshold: int = 200) -> list[CornerSet]:
     #     corners = order_corners(the four polygon vertices)
     #     append corners to corner_candidates
     # return corner_candidates
+    image_array = np.ascontiguousarray(image, dtype=np.uint8)
+    r, g, b = cv2.split(image_array)
+    red_diff = cv2.subtract(r, g)
+    _, red_mask = cv2.threshold(red_diff, 50, 255, cv2.THRESH_BINARY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
+
+    contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    corner_candidates = []
+    for contour in contours:
+        if cv2.contourArea(contour) < 300:
+            continue
+
+        epsilon = 0.04 * cv2.arcLength(contour, True)
+        polygon = cv2.approxPolyDP(contour, epsilon, True)
+        if len(polygon) != 4:
+            continue
+        if not cv2.isContourConvex(polygon):
+            continue
+
+        pts = [tuple(p[0].astype(float)) for p in polygon]
+        ordered_pts = order_corners(pts)        
+        corner_candidates.append(ordered_pts)
+
+    return corner_candidates
     raise NotImplementedError("detect_bbox is not implemented")
 
 
@@ -141,8 +177,28 @@ def detect_mnist_board(image: ImageLike, threshold: int = 200) -> list[Detection
     # TODO(student): Classify detected MNIST-board candidates and filter them.
     # Input: one RGB image and a threshold parameter.
     # Output: a list of Detection objects.
+    corner_candidates = detect_bbox(image, threshold)
+    if not corner_candidates:
+        return []
     # Step 1: call detect_bbox(...) to get board candidates.
+
+    crops = crop_bbox(image, corner_candidates)
+    detections = []
     # Step 2: call crop_bbox(...) to extract candidate crops.
+
+    for i, crop in enumerate(crops):
+        digit, confidence = classify_mnist_digit(crop)
+        if confidence > 0.3:
+            corners = corner_candidates[i]
+            bbox = _bbox_from_corners(corners)            
+            detections.append(Detection(
+                class_id=digit,
+                confidence=confidence,
+                bbox=bbox,
+                corners=corners
+            ))
+            
+    return detections
     # Step 3: call classify_mnist_digit(...) on each crop and filter low-confidence results.
     # Step 4: package the remaining results as Detection objects.
     raise NotImplementedError("detect_mnist_board is not implemented")
@@ -156,17 +212,35 @@ def solve_pnp(
     dist_coeffs: Sequence[float] | None = None,
 ) -> list[Detection]:
     # TODO(student): Fill rvec and tvec for every valid Detection.
-    # half_width = board_width_meters / 2
-    # half_height = board_height_meters / 2
-    # object_points = four physical board corners as float32:
-    #     (-half_width, -half_height, 0)
-    #     (half_width, -half_height, 0)
-    #     (half_width, half_height, 0)
-    #     (-half_width, half_height, 0)
+    half_width = board_width_meters / 2
+    half_height = board_height_meters / 2
+    object_points = np.array([
+        (-half_width, -half_height, 0),
+        (half_width, -half_height, 0),
+        (half_width, half_height, 0),
+        (-half_width, half_height, 0)
+    ], dtype=np.float32)
+    camera_array = np.array(camera_matrix, dtype=np.float64)
     # camera_array = camera_matrix as a 3x3 float64 array
+    dist_array = np.zeros(5, dtype=np.float64) if dist_coeffs is None else np.array(dist_coeffs, dtype=np.float64)
     # dist_array = zero distortion if dist_coeffs is not provided
-    # result = []
-    # for each detection:
+    result = []
+    for d in detections:
+        image_points = np.array(d.corners, dtype=np.float32)
+        success, rvec, tvec = cv2.solvePnP(
+            object_points, 
+            image_points, 
+            camera_array, 
+            dist_array, 
+            flags=cv2.SOLVEPNP_ITERATIVE
+        )
+        
+        if success:
+            d.rvec = rvec
+            d.tvec = tvec
+            result.append(d)
+            
+    return result
     #     image_points = detection.corners as a float32 4x2 array
     #     call cv2.solvePnP with object_points, image_points, camera_array, and dist_array
     #     if OpenCV reports failure:

@@ -28,10 +28,19 @@ class MNISTClassifier(nn.Module):
     def __init__(self, input_size: int = 28 * 28, num_classes: int = 10) -> None:
         super().__init__()
         # TODO(student): fill in your custom model architectures
-        raise NotImplementedError("MNIST classifier model logic not implemented!")
+        self.layers = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(input_size, 512),
+            nn.ReLU(),
+            # nn.Dropout(0.2),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_classes)
+
+        )
 
     def forward(self, inputs):
-        # TODO(student): fill in your forward process according to your model
+        return self.layers(inputs)
         raise NotImplementedError("MNIST classifier forward logic not implemented!")
 
 
@@ -43,6 +52,11 @@ def select_training_device(torch_module) -> str:
     #     return "mps" for Apple Silicon GPU training
     # otherwise:
     #     return "cpu" so training still works without an accelerator
+    if torch_module.cuda.is_available():
+        return "cuda"
+    if hasattr(torch_module.backends, "mps") and torch_module.backends.mps.is_available():
+        return "mps"
+    return "cpu"
     raise NotImplementedError("select_training_device is not implemented")
 
 
@@ -61,6 +75,43 @@ def train_mnist_classifier(dataset_dir: Path, output_path: Path) -> Path:
     # train until validation accuracy is stable
     # save the trained model weights or serialized estimator to output_path
     # return output_path
+    device = select_training_device(torch)
+    print(f"Using device: {device}")
+
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize((0.1307,), (0.3081,))
+    ])
+
+    train_set = torchvision.datasets.MNIST(root=dataset_dir.parent, train=True, transform=transform, download=False)
+    train_loader = DataLoader(train_set, batch_size=64, shuffle=True)
+
+    model = MNISTClassifier().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    criterion = nn.CrossEntropyLoss()
+
+    model.train()
+    epochs = 10 
+    print("Starting training...")
+    for epoch in range(epochs):
+        total_loss = 0
+        for batch_idx, (data, target) in enumerate(train_loader):
+            data, target = data.to(device), target.to(device)
+            
+            optimizer.zero_grad() 
+            output = model(data)  
+            loss = criterion(output, target) 
+            loss.backward()      
+            optimizer.step()  
+            
+            total_loss += loss.item()
+            if batch_idx % 100 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Batch {batch_idx}, Loss: {loss.item():.4f}")
+
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), output_path)
+    return output_path
     raise NotImplementedError("MNIST training is not implemented")
 
 

@@ -20,14 +20,14 @@ ARUCO_VIDEO_PATH = TASK_ROOT / "data" / "aruco" / "aruco.mp4"
 # choose the same dictionary that was used to print the marker
 # measure the black marker side length in meters and store it in MARKER_LENGTH_METERS
 ARUCO_DICTIONARY = "DICT_4X4_50"
-MARKER_LENGTH_METERS = 0.05
+MARKER_LENGTH_METERS = 0.076
 
 ARUCO_OUTPUT_VIDEO_PATH = TASK_ROOT / "output" / "aruco_result.mp4"
 
 # TODO(student): use this path if you want to render one of the provided OBJ models.
 # start with cube.obj while debugging because its shape makes pose errors obvious
 # after the pose is stable, switch to another OBJ model from res/models
-MODEL_PATH = TASK_ROOT / "res" / "models" / "cube.obj"
+MODEL_PATH = TASK_ROOT / "res" / "models" / "african_head.obj"
 OUTPUT_DIR = TASK_ROOT / "output"
 
 
@@ -126,6 +126,12 @@ def estimate_marker_pose(marker_corners, marker_length_meters, camera_matrix, di
     # Input: detected 2D marker corners, marker size, camera_matrix, and dist_coeffs.
     # Output: rvec and tvec.
     # `object_points` has already been prepared for you.
+    success, rotate_vec, transmit_vec = cv2.solvePnP(
+        object_points, marker_corners.reshape(4, 2), camera_matrix, dist_coeffs
+    )
+    if not success:
+        return None, None
+    return rotate_vec, transmit_vec
     raise NotImplementedError("estimate_marker_pose is not implemented")
 
 
@@ -143,7 +149,39 @@ def render_virtual_object(frame, rvec, tvec, camera_matrix, dist_coeffs, vertice
     # 5. Draw the triangle edges or filled triangle on frame.
     #
     # Model size normalization can be tricky at first; we recommend asking AI for help.
+    pts_3d = np.array(vertices, dtype=np.float32)
+
+    # --- 1. 自动缩放 ---
+    # 计算模型在三个轴上的跨度
+    min_pt = np.min(pts_3d, axis=0)
+    max_pt = np.max(pts_3d, axis=0)
+    size = max_pt - min_pt
+    max_dimension = np.max(size)
     
+    # 缩放到 marker 长度的一半左右 (或者你觉得合适的比例)
+    scale = MARKER_LENGTH_METERS / max_dimension
+    pts_3d *= scale
+
+    # --- 2. 居中与平移 ---
+    # 让模型的中心在 (X=0, Y=0) 上，底部在 Z=0 上（让它站在纸上）
+    # 注意：OBJ 里的坐标轴可能和 OpenCV 坐标系不一致，可能需要尝试交换轴
+    # 假设 africanhead 的 Y 是高度轴 (Up-axis)
+    pts_3d[:, 0] -= (np.min(pts_3d[:, 0]) + np.max(pts_3d[:, 0])) / 2  # X居中
+    pts_3d[:, 1] -= (np.min(pts_3d[:, 1]) + np.max(pts_3d[:, 1])) / 2  # Y居中
+    pts_3d[:, 2] -= np.min(pts_3d[:, 2])  # Z底部对齐 Z=0
+
+    # --- 3. 投影 ---
+    pts_2d, _ = cv2.projectPoints(pts_3d, rvec, tvec, camera_matrix, dist_coeffs)
+    pts_2d = pts_2d.reshape(-1, 2).astype(int)
+
+    # --- 4. 绘制 ---
+    # africanhead 面数很多，全画 polylines 可能会卡顿，可以每隔几帧画一次，或者只画一部分
+    # 也可以使用 cv2.fillPoly 来增加质感
+    for face in faces:
+        poly = np.array([pts_2d[face[0]], pts_2d[face[1]], pts_2d[face[2]]])
+        cv2.polylines(frame, [poly], isClosed=True, color=(0, 255, 0), thickness=1)
+
+    return frame
     raise NotImplementedError("render_virtual_object is not implemented")
 
 
