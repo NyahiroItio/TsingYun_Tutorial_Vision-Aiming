@@ -150,7 +150,12 @@ def render_virtual_object(frame, rvec, tvec, camera_matrix, dist_coeffs, vertice
     #
     # Model size normalization can be tricky at first; we recommend asking AI for help.
     pts_3d = np.array(vertices, dtype=np.float32)
-
+    temp_pts = pts_3d.copy()
+    pts_3d[:, 1] = -temp_pts[:, 2]
+    pts_3d[:, 2] = temp_pts[:, 1]
+    '''
+    PTS_new = PTS_old * [ [0, -1; 1, 0], [0], [0], [1] ]
+    '''
     # --- 1. 自动缩放 ---
     # 计算模型在三个轴上的跨度
     min_pt = np.min(pts_3d, axis=0)

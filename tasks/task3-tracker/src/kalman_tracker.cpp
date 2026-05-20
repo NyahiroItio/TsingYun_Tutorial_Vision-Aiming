@@ -59,6 +59,7 @@ namespace hw
         p10 = p10_new;
         p11 = p11_new;
         // store the updated position, velocity, and covariance
+        return;
         throw std::logic_error("NotImplementedError: KalmanTracker::AxisFilter::predict");
     }
 
@@ -92,6 +93,7 @@ namespace hw
         p01 = p01_new;
         p10 = p10_new;
         p11 = p11_new;
+        return;
         throw std::logic_error("NotImplementedError: KalmanTracker::AxisFilter::update");
     }
 

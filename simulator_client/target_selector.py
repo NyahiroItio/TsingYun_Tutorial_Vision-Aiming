@@ -35,26 +35,43 @@ class TargetSelector:
     def is_tracking(self) -> bool:
         return self._tracking_digit is not None
 
-    def select(self, detections: list[Detection]) -> Detection | None:
-        if not self.is_tracking:
-            return self._acquire(detections)
-        return self._match(detections)
-
-    def _acquire(self, detections: list[Detection]) -> Detection | None:
-        if not detections:
-            return None
+    def get_best_candidates(self, detections: list[Detection]) -> list[Detection]:
         candidates = [
-            d
-            for d in detections
+            d for d in detections 
             if d.class_id >= 0 and d.confidence >= self._min_confidence
         ]
+        
         if not candidates:
             return None
+        return max(candidates, key=lambda d: (d.class_id, d.confidence))
+    
+    def select(self, detections: list[Detection]) -> Detection | None:
+            global_best = self.get_best_candidates(detections)
+            if not self.is_tracking:
+                if global_best:
+                    return self._acquire(global_best)
+                return None
+            
+            if global_best and global_best.class_id > self._tracking_digit:
+                return self._acquire(global_best)
+            
+            return self._match(detections)
+
+    def _acquire(self, detections: list[Detection]) -> Detection | None:
+        # if not detections:
+        #     return None
+        # candidates = [
+        #     d
+        #     for d in detections
+        #     if d.class_id >= 0 and d.confidence >= self._min_confidence
+        # ]
+        # if not candidates:
+        #     return None
         # TODO: Pick largest digit, tie-break by confidence
-        best = max(candidates, key=lambda d: (d.class_id, d.confidence))
-        self._tracking_digit = best.class_id
+
+        self._tracking_digit = detections.class_id
         self._lost_frames = 0
-        return best
+        return detections
 
     def _match(self, detections: list[Detection]) -> Detection | None:
         matches = [d for d in detections if d.class_id == self._tracking_digit]
